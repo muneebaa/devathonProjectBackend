@@ -1,8 +1,9 @@
 const router = require('express').Router();
 const { body, validationResult } = require('express-validator');
 const { passport } = require('../passport-config');
-const { hashPassword } = require('../lib/utils');
+const { hashPassword, serverErrorResponse } = require('../lib/utils');
 const { getDatabase } = require('../lib/database');
+const { addUser } = require('../controllers/user');
 
 router.post(
   '/auth/signup',
@@ -32,7 +33,7 @@ router.post(
           .json({ message: 'The user with this email already exists' });
       }
 
-      const { insertedId } = await db.collection('users').insertOne({
+      const { insertedId } = await addUser({
         ...req.body,
         password: hashedPassword,
       });
@@ -43,22 +44,32 @@ router.post(
 
       req.login({ _id: user._id.toString() }, err => {
         if (err) return res.status(500).end();
-        return res.redirect('/home');
+        // return res.redirect('/home');
+        return res.status(201).end();
       });
     } catch (e) {
       console.error(e);
-      return res.status(500).end();
+      return serverErrorResponse(res);
     }
   }
 );
 
-router.post(
-  '/auth/login',
-  passport.authenticate('local', {
-    successRedirect: '/home',
-    failureRedirect: '/login',
-  })
-);
+router.post('/auth/login', (req, res, next) => {
+  passport.authenticate('local', (err, user, info) => {
+    if (err) {
+      return next(err); // Handle any errors
+    }
+    if (!user) {
+      return res.status(401).json({ message: 'Authentication failed' }); // Authentication failed
+    }
+    req.logIn(user, err => {
+      if (err) {
+        return next(err); // Handle login errors
+      }
+      return res.status(201).end();
+    });
+  })(req, res, next);
+});
 
 router.get(
   '/auth/github',
@@ -95,7 +106,7 @@ router.get('/logout', (req, res) => {
     if (err) return res.status(500).end();
     req.session.destroy(err => {
       if (err) return res.status(500).end();
-      return res.redirect('/login');
+      return res.status(201).end();
     });
   });
 });
